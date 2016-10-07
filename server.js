@@ -3,27 +3,16 @@ var app = express();
 var marko = require('marko');
 require('marko/node-require').install();
 var connectSdk = require('connect-sdk-nodejs');
-
+var crypto = require('crypto');
 var logger = require('./util/logger');
+var dateformat = require('dateFormat');
+var request = require('request');
+var _ = require('lodash');
+var https = require('https');
+
 
 // stubs
-var createHostedCheckoutStub = require('./stubs/hostedcheckouts/createHostedCheckout.json');
 var createPaymentStub = require('./stubs/payments/createPaymentRequest.json');
-var approvePaymentRequestStub = require('./stubs/payments/approvePaymentRequest.json');
-var tokenizePaymentStub = require('./stubs/payments/tokenizePaymentRequest.json');
-var createRefundStub = require('./stubs/payments/createRefundRequest.json');
-var createPayoutStub = require('./stubs/payouts/createPayoutRequest.json');
-var approvePayoutStub = require('./stubs/payouts/approvePayoutRequest.json');
-var approveRefundStub = require('./stubs/refunds/approveRefundRequest.json');
-var riskAssessmentCardStub = require('./stubs/riskassessments/riskAssessmentCardRequest.json');
-var riskAssessmentBankAccountStub = require('./stubs/riskassessments/riskAssessmentBankAccountRequest.json');
-var retrieveIINdetailsStub = require('./stubs/services/retrieveIINDetailsRequest.json');
-var convertBankAccountStub = require('./stubs/services/convertBankAccountRequest.json');
-var createSessionStub = require('./stubs/sessions/createSessionRequest.json');
-var createTokenStub = require('./stubs/tokens/createTokenRequest.json');
-var updateTokenStub = require('./stubs/tokens/updateTokenRequest.json');
-var approvesepadirectdebitStub = require('./stubs/tokens/approvesepadirectdebitRequest.json');
-
 var config = require('./config.json');
 
 connectSdk.init({
@@ -35,6 +24,11 @@ connectSdk.init({
   apiKeyId: config.apiKeyId,
   secretApiKey: config.secretApiKey
 });
+
+var host = "https://api-sandbox.globalcollect.com/v1";
+
+var apiKeyId = config.apiKeyId;
+var secretApiKey = config.secretApiKey;
 
 // DEMO app
 var port = config.port;
@@ -78,19 +72,9 @@ var paymentContext = {
 // all SDK methods; grouped by API method
 
 // hosted checkouts
-app.get('/hostedcheckout', function (req, res) {
-  connectSdk.hostedcheckouts.create(merchantId, createHostedCheckoutStub, null, function (error, sdkResponse) {
-    render(res, error, sdkResponse);
-  });
-});
-app.get('/hostedcheckoutstatus/:hostedCheckoutId', function (req, res) {
-  connectSdk.hostedcheckouts.get(merchantId, req.params.hostedCheckoutId, null, function (error, sdkResponse) {
-    render(res, error, sdkResponse);
-  });
-});
 
 // payments
-app.get('/payments/createPayment', function (req, res) {
+app.get('/payments/createPaymentWithSDK', function (req, res) {
   paymentContext.idemPotence = {
     key: 'idempotence'
   };
@@ -98,194 +82,82 @@ app.get('/payments/createPayment', function (req, res) {
     render(res, error, sdkResponse);
   });
 });
-app.get('/payments/retrievePayment/:paymentId', function (req, res) {
-  connectSdk.payments.get(merchantId, req.params.paymentId, null, function (error, sdkResponse) {
-    render(res, error, sdkResponse);
-  });
-});
-app.get('/payments/approvesChallengedPayment/:paymentId', function (req, res) {
-  connectSdk.payments.processchallenged(merchantId, req.params.paymentId, null, function (error, sdkResponse) {
-    render(res, error, sdkResponse);
-  });
-});
-app.get('/payments/capturePayment/:paymentId', function (req, res) {
-  connectSdk.payments.approve(merchantId, req.params.paymentId, approvePaymentRequestStub, null, function (error, sdkResponse) {
-    render(res, error, sdkResponse);
-  });
-});
-app.get('/payments/tokenizePayment/:paymentId', function (req, res) {
-  connectSdk.payments.tokenize(merchantId, req.params.paymentId, tokenizePaymentStub, null, function (error, sdkResponse) {
-    render(res, error, sdkResponse);
-  });
-});
-app.get('/payments/cancelPayment/:paymentId', function (req, res) {
-  connectSdk.payments.cancel(merchantId, req.params.paymentId, null, function (error, sdkResponse) {
-    render(res, error, sdkResponse);
-  });
-});
-app.get('/payments/createRefund/:paymentId', function (req, res) {
-  connectSdk.payments.refund(merchantId, req.params.paymentId, createRefundStub, null, function (error, sdkResponse) {
-    render(res, error, sdkResponse);
-  });
-});
-app.get('/payments/cancelApprovalPayment/:paymentId', function (req, res) {
-  connectSdk.payments.cancelapproval(merchantId, req.params.paymentId, null, function (error, sdkResponse) {
-    render(res, error, sdkResponse);
-  });
-});
 
-// payouts
-app.get('/payouts/createPayout', function (req, res) {
-  connectSdk.payouts.create(merchantId, createPayoutStub, null, function (error, sdkResponse) {
-    render(res, error, sdkResponse);
-  });
-});
-app.get('/payouts/retrievePayout/:payoutId', function (req, res) {
-  connectSdk.payouts.get(merchantId, req.params.payoutId, null, function (error, sdkResponse) {
-    render(res, error, sdkResponse);
-  });
-});
-app.get('/payouts/approvesPayout/:payoutId', function (req, res) {
-  connectSdk.payouts.approve(merchantId, req.params.payoutId, approvePayoutStub, null, function (error, sdkResponse) {
-    render(res, error, sdkResponse);
-  });
-});
-app.get('/payouts/cancelApprovalPayout/:payoutId', function (req, res) {
-  connectSdk.payouts.cancelapproval(merchantId, req.params.payoutId, null, function (error, sdkResponse) {
-    render(res, error, sdkResponse);
-  });
-});
-app.get('/payouts/cancelPayout/:payoutId', function (req, res) {
-  connectSdk.payouts.cancel(merchantId, req.params.payoutId, null, function (error, sdkResponse) {
-    render(res, error, sdkResponse);
-  });
-});
+app.get('/payments/createPaymentWithOutSDK', function (req, res) {
+  var path =  '/v1/' + merchantId + '/payments';
+  var options = {
+    host: config.apiEndpoint.host,
+    port: config.apiEndpoint.port,
+    path: path,
+    method: 'POST'
+  }
 
-// products
-app.get('/products/retrievePaymentProducts', function (req, res) {
-  connectSdk.products.find(merchantId, paymentContext, function (error, sdkResponse) {
-    render(res, error, sdkResponse);
-  });
-});
-app.get('/products/retrievePaymentProductFields/:paymentProductId', function (req, res) {
-  connectSdk.products.get(merchantId, req.params.paymentProductId, paymentContext, function (error, sdkResponse) {
-    render(res, error, sdkResponse);
-  });
-});
-app.get('/products/retrievePaymentProductFieldDirectory/:paymentProductId', function (req, res) {
-  var clientUserAgent = req.headers["user-agent"];
-  paymentContext.extraHeaders = [
-    { key: 'X-GCS-ClientMetaInfo', value: clientUserAgent }
-  ];
-  connectSdk.products.directory(merchantId, req.params.paymentProductId, paymentContext, function (error, sdkResponse) {
-    render(res, error, sdkResponse);
-  });
-});
+  var gcsHeaders = [{ key: 'X-GCS-Idempotence-Key', value: 'idempotence' }];
+  var info = {
+    key: "X-GCS-ServerMetaInfo",
+    value: {
+      'sdkCreator': 'Ingenico',
+      'sdkIdentifier': 'NodejsServerSDK/v1.1.0',
+      'platformIdentifier': process.env['OS'] + ' Node.js/' + process.versions.node
+    }
+  };
 
-// product groups
-app.get('/products/retrievePaymentProductGroups', function (req, res) {
-  connectSdk.productgroups.find(merchantId, paymentContext, function (error, sdkResponse) {
-    render(res, error, sdkResponse);
-  });
-});
-app.get('/products/retrievePaymentProductGroup/:paymentProductGroupId', function (req, res) {
-  connectSdk.productgroups.get(merchantId, req.params.paymentProductGroupId, paymentContext, function (error, sdkResponse) {
-    render(res, error, sdkResponse);
-  });
-});
+  info.value = new Buffer(JSON.stringify(info.value)).toString("base64");
+  gcsHeaders.push(info);
+  var headers = '';
+  
 
-// refunds
-app.get('/refunds/retrieveRefund/:refundId', function (req, res) {
-  connectSdk.refunds.get(merchantId, req.params.refundId, null, function (error, sdkResponse) {
-    render(res, error, sdkResponse);
+  var sortedXGCSHeaders = [];
+  _.forEach(gcsHeaders, function(header) {
+    if (header.key.toUpperCase().indexOf("X-GCS") === 0) {
+      // add this header
+      sortedXGCSHeaders.push(header);
+    }
   });
-});
-app.get('/refunds/approveRefund/:payoutId', function (req, res) {
-  connectSdk.refunds.approve(merchantId, req.params.refundId, approveRefundStub, null, function (error, sdkResponse) {
-    render(res, error, sdkResponse);
+  sortedXGCSHeaders = sortedXGCSHeaders.sort(function(a, b) {
+    a.key = a.key.toUpperCase();
+    b.key = b.key.toUpperCase();
+    if (a.key < b.key) {
+      return -1;
+    } else if (a.key > b.key) {
+      return 1;
+    } else {
+      return 0;
+    }
   });
-});
-app.get('/refunds/undoApproveRefund/:payoutId', function (req, res) {
-  connectSdk.refunds.cancelapproval(merchantId, req.params.refundId, null, function (error, sdkResponse) {
-    render(res, error, sdkResponse);
+  _.forEach(sortedXGCSHeaders, function(header) {
+    headers += header.key.toLowerCase() + ":" + header.value + "\n";
   });
-});
-app.get('/refunds/cancelRefund/:payoutId', function (req, res) {
-  connectSdk.refunds.cancel(merchantId, req.params.refundId, null, function (error, sdkResponse) {
-    render(res, error, sdkResponse);
-  });
-});
 
-// riskassessments
-app.get('/riskassessments/card', function (req, res) {
-  connectSdk.riskassessments.cards(merchantId, riskAssessmentCardStub, null, function (error, sdkResponse) {
-    render(res, error, sdkResponse);
-  });
-});
-app.get('/riskassessments/bankaccount', function (req, res) {
-  connectSdk.riskassessments.bankaccounts(merchantId, riskAssessmentBankAccountStub, null, function (error, sdkResponse) {
-    render(res, error, sdkResponse);
-  });
-});
+  var separator = "?";
+  for (var key in paymentContext) {
+    if (key !== "extraHeaders" && key !== "idemPotence") {
+      if (_.isArray(paymentContext[key])) {
+        for (var value in paymentContext[key]) {
+          path += separator + key + "=" + paymentContext[key][value];
+          separator = "&";
+        }
+      } else {
+        path += separator + key + "=" + paymentContext[key];
+        separator = "&";
+      }
+    }
+  }
+  date = dateformat("GMT:ddd, dd mmm yyyy HH:MM:ss") + " GMT";
+  var token = crypto.createHmac("SHA256", secretApiKey).update("POST" + "\n" + "application/json" + "\n" + date + "\n" + headers + path + "\n").digest('base64');
+  console.log("GCS v1HMAC:" + apiKeyId + ":" + token);
 
-// services
-app.get('/services/testconnection', function (req, res) {
-  connectSdk.services.testconnection(merchantId, null, function (error, sdkResponse) {
-    render(res, error, sdkResponse);
-  });
-});
-app.get('/services/retrieveIINdetails', function (req, res) {
-  connectSdk.services.getIINdetails(merchantId, retrieveIINdetailsStub, null, function (error, sdkResponse) {
-    render(res, error, sdkResponse);
-  });
-});
-app.get('/services/convertbankaccount', function (req, res) {
-  connectSdk.services.bankaccount(merchantId, convertBankAccountStub, null, function (error, sdkResponse) {
-    render(res, error, sdkResponse);
-  });
-});
-app.get('/services/convertAmount', function (req, res) {
-  connectSdk.services.convertAmount(merchantId, {
-    "source": "USD",
-    "target": "EUR",
-    "amount": 1000
-  }, function (error, sdkResponse) {
-    render(res, error, sdkResponse);
-  });
-});
+  request({
+    method: 'POST',
+    url : "https://" + config.apiEndpoint.host + path,
+    headers: {
+      'Authorization':  "GCS v1HMAC:" + apiKeyId + ":" + token
+    },
+    body: JSON.stringify(createPaymentStub)
+  }, function(error, response, body) {
+    console.log(body);
+  })
 
-// sessions
-app.get('/sessions/createSession', function (req, res) {
-  connectSdk.sessions.create(merchantId, createSessionStub, null, function (error, sdkResponse) {
-    render(res, error, sdkResponse);
-  });
-});
-
-// tokens
-app.get('/tokens/createToken', function (req, res) {
-  connectSdk.tokens.create(merchantId, createTokenStub, null, function (error, sdkResponse) {
-    render(res, error, sdkResponse);
-  });
-});
-app.get('/tokens/retrieveToken/:tokenId', function (req, res) {
-  connectSdk.tokens.get(merchantId, req.params.tokenId, null, function (error, sdkResponse) {
-    render(res, error, sdkResponse);
-  });
-});
-app.get('/tokens/updateToken/:tokenId', function (req, res) {
-  connectSdk.tokens.update(merchantId, req.params.tokenId, updateTokenStub, null, function (error, sdkResponse) {
-    render(res, error, sdkResponse);
-  });
-});
-app.get('/tokens/deleteToken/:tokenId', function (req, res) {
-  connectSdk.tokens.remove(merchantId, req.params.tokenId, { mandateCancelDate: "20160503" }, function (error, sdkResponse) {
-    render(res, error, sdkResponse);
-  });
-});
-app.get('/tokens/approveSepaDirectdebit/:tokenId', function (req, res) {
-  connectSdk.tokens.approvesepadirectdebit(merchantId, req.params.tokenId, approvesepadirectdebitStub, null, function (error, sdkResponse) {
-    render(res, error, sdkResponse);
-  });
 });
 
 // init express
